@@ -1,3 +1,7 @@
+# To run this Streamlit application, ensure you have the following libraries installed.
+# You can install them using pip:
+# pip install streamlit PyPDF2 python-docx requests
+
 import streamlit as st
 import PyPDF2
 from docx import Document # pip install python-docx
@@ -86,7 +90,8 @@ def extract_text_from_docx(docx_file):
 
 def clean_text(text):
     """
-    Cleans the extracted text by converting to lowercase and removing non-alphanumeric characters.
+    Cleans the extracted text by converting to lowercase, removing non-alphanumeric characters,
+    and normalizing whitespace.
     Args:
         text (str): The raw text extracted from the resume.
     Returns:
@@ -94,7 +99,13 @@ def clean_text(text):
     """
     text = text.lower()
     # Remove characters that are not letters, numbers, or spaces
+    # NOTE: This regex keeps alphanumeric and spaces. If keywords like "C++" or "C#"
+    # are expected to match, they will be converted to "c" after this step.
+    # For more precise matching of such terms, a more sophisticated NLP approach
+    # like tokenization and lemma matching would be needed.
     text = re.sub(r'[^a-z0-9\s]', '', text)
+    # Normalize whitespace: replace multiple spaces/newlines with a single space
+    text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 # --- Score Calculation Function ---
@@ -117,13 +128,16 @@ def calculate_score(resume_text, selected_designation):
     matched = set()
     missing = set(target_keywords)
 
-    for keyword in target_keywords:
-        # Check for exact keyword or phrase match (case-insensitive due to clean_text)
-        if keyword.lower() in resume_text:
+    for keyword_raw in target_keywords:
+        # Clean the keyword itself to match the cleaning applied to the resume text
+        keyword_cleaned = clean_text(keyword_raw)
+        
+        # Check for presence of the cleaned keyword in the cleaned resume text
+        if keyword_cleaned in resume_text:
             score += 1
-            matched.add(keyword)
-            if keyword in missing: # Ensure we remove from missing if found
-                missing.remove(keyword)
+            matched.add(keyword_raw) # Store the original keyword for display
+            if keyword_raw in missing:
+                missing.remove(keyword_raw)
 
     percentage = (score / total_keywords) * 100
     return percentage, sorted(list(matched)), sorted(list(missing))
@@ -151,7 +165,7 @@ def fetch_llm_suggestions(resume_text, selected_designation, missing_keywords):
 
     # Gemini API details
     # The API key will be provided by the Canvas environment at runtime if left as an empty string.
-    api_key = ""
+    api_key = "AIzaSyDYkNiExLyVvs0vczS_3KPvn3Kgy9EbAOA"
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
 
     headers = {'Content-Type': 'application/json'}
@@ -275,9 +289,10 @@ if selected_designation and uploaded_file and cleaned_resume_text:
             # Split the LLM response into lines and render as a list
             suggestion_lines = [line.strip() for line in llm_suggestions_text.split('\n') if line.strip()]
             if suggestion_lines:
+                # Use Markdown to render a list, ensuring no leading characters from LLM
                 st.markdown(
                     "<ul style='list-style-type: disc; padding-left: 20px;'>" +
-                    "".join([f"<li style='margin-bottom: 8px;'>{line}</li>" for line in suggestion_lines]) +
+                    "".join([f"<li style='margin-bottom: 8px;'>{line.strip()}</li>" for line in suggestion_lines]) +
                     "</ul>",
                     unsafe_allow_html=True
                 )
